@@ -58,7 +58,8 @@ Los módulos también declaran el starter de validación. Las reglas actuales se
 ```mermaid
 flowchart LR
     HTTP[Cliente HTTP / Postman] --> C[Controller REST]
-    C --> S[Servicio de aplicación]
+    C --> I[Puerto de entrada / caso de uso]
+    S[Servicio de aplicación] -. implementa .-> I
     S --> D[Modelo de dominio]
     S --> P[Puerto de repositorio]
     A[Adaptador de persistencia] -. implementa .-> P
@@ -73,14 +74,16 @@ flowchart LR
 | Capa | Responsabilidad |
 |---|---|
 | `domain/model` | Entidades de negocio, objetos de valor, estados y reglas. No contiene el mapeo JPA. |
-| `application/port` | Interfaces para persistencia y consultas a otros microservicios. |
+| `application/port/in` | Interfaces de los casos de uso que invocan los controladores. |
+| `application/port/out` | Interfaces para persistencia y comunicación con otros microservicios. |
 | `application/service` | Casos de uso, coordinación de validaciones y llamadas a los puertos. |
-| `infrastructure/controller` | Endpoints REST y traducción de excepciones a respuestas HTTP. |
-| `infrastructure/adapter` | Implementaciones de los puertos, conversión dominio/JPA y clientes externos. |
-| `infrastructure/entity` | Entidades JPA, embebidos, columnas y relaciones. |
-| `infrastructure/repository` | Interfaces de Spring Data que acceden a MySQL. |
+| `application/exception` | Excepciones de aplicación para fallos de servicios externos, donde se necesitan. |
+| `infrastructure/adapter/in/rest` | Controladores, manejadores de excepciones HTTP, DTO y mappers REST. |
+| `infrastructure/adapter/out/persistence` | Adaptadores de persistencia y sus paquetes `entity`, `repository` y `mapper`. |
+| `infrastructure/adapter/out/client` | Clientes OpenFeign y adaptadores que implementan puertos de salida. |
+| `infrastructure/config` | Configuración de beans e inyección de las dependencias de aplicación. |
 
-Por ejemplo, `VehiculoService` utiliza `VehiculoRepositoryPort`; `VehiculoCrudAdapter` implementa ese contrato y transforma `Vehiculo` en `VehiculoEntity` para persistirlo. Los servicios de aplicación usan anotaciones Spring, mientras que los modelos de dominio no dependen de JPA.
+Por ejemplo, `VehiculoController` depende de `VehiculoUseCase`, implementado por `VehiculoService`. Este servicio utiliza `VehiculoRepositoryPort`; `VehiculoCrudAdapter` implementa ese puerto y delega la conversión entre `Vehiculo` y `VehiculoEntity` en `VehiculoPersistenceMapper`. `ApplicationConfig` crea el servicio e inyecta sus dependencias por constructor. El dominio permanece independiente de Spring, JPA y OpenFeign.
 
 ## Microservicios
 
@@ -122,7 +125,7 @@ lubrimax-hexagonal/
 └── msvc-ejecucion/
 ```
 
-Cada microservicio sigue esta estructura; los clientes externos aparecen en los módulos que los necesitan:
+Los microservicios siguen esta organización, con los paquetes opcionales indicados según sus responsabilidades:
 
 ```text
 msvc-<nombre>/
@@ -134,15 +137,28 @@ msvc-<nombre>/
     │   ├── Msvc...Application.java
     │   ├── domain/model/
     │   ├── application/
+    │   │   ├── exception/          # En órdenes, requerimientos y ejecución
     │   │   ├── port/
+    │   │   │   ├── in/             # Interfaces de casos de uso
+    │   │   │   └── out/            # Persistencia y servicios externos
     │   │   └── service/
     │   └── infrastructure/
     │       ├── adapter/
-    │       ├── controller/
-    │       ├── entity/
-    │       └── repository/
+    │       │   ├── in/
+    │       │   │   └── rest/       # Controladores y manejadores HTTP
+    │       │   │       ├── dto/
+    │       │   │       └── mapper/ # Véase la nota sobre vehículos y servicios
+    │       │   └── out/
+    │       │       ├── persistence/
+    │       │       │   ├── entity/
+    │       │       │   ├── repository/
+    │       │       │   └── mapper/
+    │       │       └── client/     # Solo donde existen integraciones externas
+    │       └── config/
     └── resources/application.properties
 ```
+
+En vehículos y servicios, el mapper REST está directamente en `adapter/in/rest`; los otros cuatro módulos lo ubican en `adapter/in/rest/mapper`. Los clientes externos y las excepciones de aplicación existen en órdenes, requerimientos y ejecución. No se crean paquetes `domain/exception` o `domain/service` vacíos: actualmente las reglas de dominio están en `domain/model`.
 
 ## Modelo y persistencia
 
